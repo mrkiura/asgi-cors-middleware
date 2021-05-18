@@ -17,6 +17,7 @@ omit =
     */tests/*
     */static/*
     *apps.py*
+    setup.py
     */distutils/*
     tests/*
 

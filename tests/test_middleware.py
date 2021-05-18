@@ -1,16 +1,14 @@
 import pytest
-from channels.testing import HttpCommunicator
-
-from asgi_middleware import CorsASGIApp
+from asgiref.testing import ApplicationCommunicator as HttpCommunicator
+from asgi_cors_middleware import CorsASGIApp
 from .asgi_app import app
 
 
 @pytest.mark.asyncio
 async def test_init_app():
     communicator = HttpCommunicator(
-        application=app,
-        method="GET",
-        path="/",
+        scope={"type": "http", "http_version": "1.0", "method": "GET", "path": "/"},
+        application=app
     )
     await communicator.send_input({"type": "http.request"})
     output = await communicator.receive_output(1)
@@ -34,15 +32,16 @@ async def test_whitelist_origin():
         app=app,
         origins=["www.example.com"]
     )
-    communicator = HttpCommunicator(
-        application=cors_app,
-        method="OPTIONS",
-        path="/",
-        headers=[
+    scope = {
+        "type": "http",
+        "path": "/",
+        "method": "OPTIONS",
+        "headers": [
             (b"origin", b"http://www.example.com"),
             (b"access-control-request-method", b"post")
         ]
-    )
+    }
+    communicator = HttpCommunicator(application=cors_app, scope=scope)
     await communicator.send_input(
         {
             "type": "http",
@@ -65,14 +64,19 @@ async def test_allow_all():
         app=app,
         origins=["*"]
     )
-    communicator = HttpCommunicator(
-        application=cors_app,
-        method="OPTIONS",
-        path="/",
-        headers=[
+    scope = {
+        "type": "http",
+        "path": "/",
+        "method": "OPTIONS",
+        "headers": [
             (b"origin", b"http://www.example.com"),
             (b"access-control-request-method", b"post")
         ]
+    }
+
+    communicator = HttpCommunicator(
+        application=cors_app,
+        scope=scope
     )
     await communicator.send_input(
         {
