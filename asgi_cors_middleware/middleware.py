@@ -59,7 +59,10 @@ class CorsASGIApp:
                 "Access-Control-Max-Age": str(max_age),
             }
         )
-        allow_headers = sorted(SAFELISTED_HEADERS | set(allow_headers))
+        # re-including normally safelisted headers implies that you want to lift the browsers
+        #  additional restrictions on those headers. we don't want to do that by default.
+        # See https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_request_header#additional_restrictions
+        allow_headers = sorted(set(allow_headers))
         if allow_headers and "*" not in allow_headers:
             preflight_headers["Access-Control-Allow-Headers"] = \
                 ", ".join(allow_headers)
@@ -141,7 +144,8 @@ class CorsASGIApp:
             headers["Access-Control-Allow-Headers"] = requested_headers
         elif requested_headers is not None:
             for header in [h.lower() for h in requested_headers.split(",")]:
-                if header.strip() not in self.allow_headers:
+                requested_header = header.strip()
+                if requested_header not in self.allow_headers and requested_method not in SAFELISTED_HEADERS:
                     failures.append("headers")
 
         if failures:
