@@ -95,10 +95,14 @@ class CorsASGIApp:
         if origin is None:
             return await self.call_app(scope, receive, send)
 
-        if method == "OPTIONS" and "access-control-request-method" in headers:
-            response = self.preflight_response(request_headers=headers)
-            await response(scope, receive, send)
-            return
+        if method == "OPTIONS":
+            if "access-control-request-method" in headers:
+                response = self.preflight_response(request_headers=headers)
+                await response(scope, receive, send)
+                return
+            # if this is an options request but was not a cors preflight,
+            #  we should skip the simple response processing.
+            return await self.call_app(scope, receive, send)
 
         await self.simple_response(
             scope, receive, send, request_headers=headers
