@@ -7,6 +7,7 @@ import functools
 import re
 import typing
 
+from asgiref.compatibility import guarantee_single_callable
 from starlette.datastructures import Headers, MutableHeaders
 
 from starlette.responses import PlainTextResponse
@@ -70,7 +71,7 @@ class CorsASGIApp:
         if allow_credentials:
             preflight_headers["Access-Control-Allow-Credentials"] = "true"
 
-        self.app = app
+        self.app = guarantee_single_callable(app)
         self.origins = origins
         self.allow_methods = allow_methods
         self.allow_headers = [h.lower() for h in allow_headers]
@@ -80,24 +81,18 @@ class CorsASGIApp:
         self.simple_headers = simple_headers
         self.preflight_headers = preflight_headers
 
-    async def call_app(self, scope, receive, send) -> None:
-        handler = await self.app(scope, receive, send)
-        if handler: # asgi3.0 returns None right away
-            await handler(scope, receive, send)
-
-
     async def __call__(
             self, scope, receive, send
     ) -> None:
         if scope["type"] != "http":
-            return await self.call_app(scope, receive, send)
+            return await self.app(scope, receive, send)
 
         method = scope["method"]
         headers = Headers(scope=scope)
         origin = headers.get("origin")
 
         if origin is None:
-            return await self.call_app(scope, receive, send)
+            return await self.app(scope, receive, send)
 
         if method == "OPTIONS":
             if "access-control-request-method" in headers:
@@ -106,7 +101,7 @@ class CorsASGIApp:
                 return
             # if this is an options request but was not a cors preflight,
             #  we should skip the simple response processing.
-            return await self.call_app(scope, receive, send)
+            return await self.app(scope, receive, send)
 
         await self.simple_response(
             scope, receive, send, request_headers=headers
@@ -167,7 +162,7 @@ class CorsASGIApp:
         send = functools.partial(
             self.send, send=send, request_headers=request_headers
         )
-        return await self.call_app(scope, receive, send)
+        return await self.app(scope, receive, send)
 
     async def send(self, message, send, request_headers) -> None:
         if message["type"] != "http.response.start":

@@ -1,3 +1,4 @@
+
 async def app(scope, receive, send):
     if scope["type"] == "websocket":
         await send({"type": "websocket.accept"})
@@ -55,3 +56,9 @@ async def app(scope, receive, send):
         'type': 'http.response.body',
         'body': b'Internal Server Error',
     })
+
+class ASGI2app():
+    def __init__(self, scope):
+        self.scope = scope
+    async def __call__(self, receive, send):
+        return await app(self.scope, receive, send)

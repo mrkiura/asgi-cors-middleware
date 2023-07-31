@@ -4,7 +4,7 @@ from channels.testing import WebsocketCommunicator
 
 from asgi_cors_middleware.middleware import CorsASGIApp
 from .asgi_app import app
-
+from .asgi_app import ASGI2app
 
 REQUEST_METHOD = b"access-control-request-method"
 REQUEST_HEADERS = b"access-control-request-headers"
@@ -15,12 +15,16 @@ EXPOSE_HEADERS = b"access-control-expose-headers"
 MAX_AGE = b"access-control-max-age"
 
 
-async def do_cors_response(scope, expected_output, cors_options):
+async def do_cors_response(scope, expected_output, cors_options=None, cors_app=None):
+    if cors_app is None:
+        if cors_options is None:
+            cors_options = {}
+        cors_app = CorsASGIApp(app=app, **cors_options)
     scope["type"] = "http"
     scope["path"] = "/"
     communicator = HttpCommunicator(
         scope=scope,
-        application=CorsASGIApp(app=app, **cors_options),
+        application=cors_app,
     )
     await communicator.send_input({"type": "http.request"})
     response_start = await communicator.receive_output()
@@ -45,10 +49,7 @@ class TestOrigins:
                 [(ALLOW_ORIGIN, b"*")],
             ),
             (
-                [
-                    (b"origin", b"http://e.com"),
-                    (b"cookie", b"session=1234")
-                ],
+                [(b"origin", b"http://e.com"), (b"cookie", b"session=1234")],
                 ["*"],
                 [(ALLOW_ORIGIN, b"http://e.com")],
             ),
@@ -767,3 +768,60 @@ async def test_non_http_scope():
         assert response == {"hello": "world"}
     finally:
         await communicator.disconnect()
+
+
+@pytest.mark.asyncio
+class TestASGI2:
+    async def test_asgi2_preflight_response(self):
+        await do_cors_response(
+            scope={
+                "method": "OPTIONS",
+                "headers": [
+                    (b"origin", b"http://e.com"),
+                    (REQUEST_METHOD, b"GET"),
+                ],
+            },
+            expected_output={
+                "status": 204,
+                "headers": [
+                    (ALLOW_ORIGIN, b"http://e.com"),
+                    (ALLOW_METHODS, b"GET"),
+                    (MAX_AGE, b"600"),
+                ],
+                "body": b"",
+            },
+            cors_app=CorsASGIApp(app=ASGI2app, origins=["http://e.com"]),
+        )
+
+    async def test_asgi2_simple_response(self):
+        await do_cors_response(
+            scope={
+                "method": "GET",
+                "headers": [
+                    (b"origin", b"http://e.com"),
+                    (REQUEST_METHOD, b"GET"),
+                ],
+            },
+            expected_output={
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", b"17"),
+                    (ALLOW_ORIGIN, b"http://e.com"),
+                ],
+                "body": b'{"hello":"world"}',
+            },
+            cors_app=CorsASGIApp(app=ASGI2app, origins=["http://e.com"]),
+        )
+
+    async def test_asgi2_non_http(self):
+        cors_app = CorsASGIApp(app=ASGI2app, origins=["*"])
+        communicator = WebsocketCommunicator(application=cors_app, path="/")
+        try:
+            connected, _subprotocol = await communicator.connect()
+            assert connected
+            await communicator.send_json_to({"hello": "world"})
+            response = await communicator.receive_json_from()
+            assert response == {"hello": "world"}
+        finally:
+            await communicator.disconnect()
