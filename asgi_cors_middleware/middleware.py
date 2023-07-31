@@ -52,7 +52,7 @@ class CorsASGIApp:
         preflight_headers = {}
         if "*" in origins:
             preflight_headers["Access-Control-Allow-Origin"] = "*"
-        else:
+        elif len(origins) > 1 or compiled_allow_origin_regex is not None:
             preflight_headers["Vary"] = "Origin"
         preflight_headers.update(
             {
@@ -186,5 +186,6 @@ class CorsASGIApp:
         elif not self.allow_all_origins and \
                 self.is_allowed_origin(origin=origin):
             headers["Access-Control-Allow-Origin"] = origin
-            headers.add_vary_header("Origin")
+            if len(self.origins) > 1 or self.allow_origin_regex is not None:
+                headers.add_vary_header("Origin")
         await send(message)
