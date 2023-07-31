@@ -74,22 +74,24 @@ class CorsASGIApp:
         self.simple_headers = simple_headers
         self.preflight_headers = preflight_headers
 
+    async def call_app(self, scope, receive, send) -> None:
+        handler = await self.app(scope, receive, send)
+        if handler: # asgi3.0 returns None right away
+            await handler(scope, receive, send)
+
+
     async def __call__(
             self, scope, receive, send
     ) -> None:
-        if scope["type"] != "http":  # pragma: no cover
-            handler = await self.app(scope, receive, send)
-            await handler.__call__(receive, send)
-            return
+        if scope["type"] != "http":
+            return await self.call_app(scope, receive, send)
 
         method = scope["method"]
         headers = Headers(scope=scope)
         origin = headers.get("origin")
 
         if origin is None:
-            handler = await self.app(scope, receive, send)
-            await handler.__call__(receive, send)
-            return
+            return await self.call_app(scope, receive, send)
 
         if method == "OPTIONS" and "access-control-request-method" in headers:
             response = self.preflight_response(request_headers=headers)
@@ -154,8 +156,7 @@ class CorsASGIApp:
         send = functools.partial(
             self.send, send=send, request_headers=request_headers
         )
-        handler = await self.app(scope, receive, send)
-        await handler(receive, send)
+        return await self.call_app(scope, receive, send)
 
     async def send(self, message, send, request_headers) -> None:
         if message["type"] != "http.response.start":
