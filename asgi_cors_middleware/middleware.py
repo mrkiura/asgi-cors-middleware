@@ -152,7 +152,7 @@ class CorsASGIApp:
         if failures:
             failure_text = "Disallowed CORS " + ", ".join(failures)
             return PlainTextResponse(
-                failure_text, status_code=400, headers=headers
+                failure_text, status_code=403, headers=headers
             )
 
         return Response("", status_code=204, headers=headers)
