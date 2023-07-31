@@ -11,7 +11,9 @@ from starlette.datastructures import Headers, MutableHeaders
 
 from starlette.responses import PlainTextResponse
 
-ALL_METHODS = ("DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT")
+# OPTIONS doesn't make sense to return as an allowed method for CORS.
+# See https://stackoverflow.com/a/68529748
+ALL_METHODS = ("DELETE", "GET", "PATCH", "POST", "PUT")
 SAFELISTED_HEADERS = {
     "Accept", "Accept-Language", "Content-Language", "Content-Type"
 }
