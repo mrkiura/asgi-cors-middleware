@@ -10,6 +10,7 @@ import typing
 from starlette.datastructures import Headers, MutableHeaders
 
 from starlette.responses import PlainTextResponse
+from starlette.responses import Response
 
 # OPTIONS doesn't make sense to return as an allowed method for CORS.
 # See https://stackoverflow.com/a/68529748
@@ -121,7 +122,7 @@ class CorsASGIApp:
 
         return any(host in origin for host in self.origins)
 
-    def preflight_response(self, request_headers) -> PlainTextResponse:
+    def preflight_response(self, request_headers) -> Response:
         requested_origin = request_headers["origin"]
         requested_method = request_headers["access-control-request-method"]
         requested_headers = request_headers.get(
@@ -154,7 +155,7 @@ class CorsASGIApp:
                 failure_text, status_code=400, headers=headers
             )
 
-        return PlainTextResponse("OK", status_code=200, headers=headers)
+        return Response("", status_code=204, headers=headers)
 
     async def simple_response(
             self,
