@@ -7,11 +7,15 @@ import functools
 import re
 import typing
 
+from asgiref.compatibility import guarantee_single_callable
 from starlette.datastructures import Headers, MutableHeaders
 
 from starlette.responses import PlainTextResponse
+from starlette.responses import Response
 
-ALL_METHODS = ("DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT")
+# OPTIONS doesn't make sense to return as an allowed method for CORS.
+# See https://stackoverflow.com/a/68529748
+ALL_METHODS = ("DELETE", "GET", "PATCH", "POST", "PUT")
 SAFELISTED_HEADERS = {
     "Accept", "Accept-Language", "Content-Language", "Content-Type"
 }
@@ -49,7 +53,7 @@ class CorsASGIApp:
         preflight_headers = {}
         if "*" in origins:
             preflight_headers["Access-Control-Allow-Origin"] = "*"
-        else:
+        elif len(origins) > 1 or compiled_allow_origin_regex is not None:
             preflight_headers["Vary"] = "Origin"
         preflight_headers.update(
             {
@@ -57,14 +61,17 @@ class CorsASGIApp:
                 "Access-Control-Max-Age": str(max_age),
             }
         )
-        allow_headers = sorted(SAFELISTED_HEADERS | set(allow_headers))
+        # re-including normally safelisted headers implies that you want to lift the browsers
+        #  additional restrictions on those headers. we don't want to do that by default.
+        # See https://developer.mozilla.org/en-US/docs/Glossary/CORS-safelisted_request_header#additional_restrictions
+        allow_headers = sorted(set(allow_headers))
         if allow_headers and "*" not in allow_headers:
             preflight_headers["Access-Control-Allow-Headers"] = \
                 ", ".join(allow_headers)
         if allow_credentials:
             preflight_headers["Access-Control-Allow-Credentials"] = "true"
 
-        self.app = app
+        self.app = guarantee_single_callable(app)
         self.origins = origins
         self.allow_methods = allow_methods
         self.allow_headers = [h.lower() for h in allow_headers]
@@ -77,24 +84,24 @@ class CorsASGIApp:
     async def __call__(
             self, scope, receive, send
     ) -> None:
-        if scope["type"] != "http":  # pragma: no cover
-            handler = await self.app(scope, receive, send)
-            await handler.__call__(receive, send)
-            return
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
 
         method = scope["method"]
         headers = Headers(scope=scope)
         origin = headers.get("origin")
 
         if origin is None:
-            handler = await self.app(scope, receive, send)
-            await handler.__call__(receive, send)
-            return
+            return await self.app(scope, receive, send)
 
-        if method == "OPTIONS" and "access-control-request-method" in headers:
-            response = self.preflight_response(request_headers=headers)
-            await response(scope, receive, send)
-            return
+        if method == "OPTIONS":
+            if "access-control-request-method" in headers:
+                response = self.preflight_response(request_headers=headers)
+                await response(scope, receive, send)
+                return
+            # if this is an options request but was not a cors preflight,
+            #  we should skip the simple response processing.
+            return await self.app(scope, receive, send)
 
         await self.simple_response(
             scope, receive, send, request_headers=headers
@@ -110,7 +117,7 @@ class CorsASGIApp:
 
         return any(host in origin for host in self.origins)
 
-    def preflight_response(self, request_headers) -> PlainTextResponse:
+    def preflight_response(self, request_headers) -> Response:
         requested_origin = request_headers["origin"]
         requested_method = request_headers["access-control-request-method"]
         requested_headers = request_headers.get(
@@ -133,16 +140,17 @@ class CorsASGIApp:
             headers["Access-Control-Allow-Headers"] = requested_headers
         elif requested_headers is not None:
             for header in [h.lower() for h in requested_headers.split(",")]:
-                if header.strip() not in self.allow_headers:
+                requested_header = header.strip()
+                if requested_header not in self.allow_headers and requested_method not in SAFELISTED_HEADERS:
                     failures.append("headers")
 
         if failures:
             failure_text = "Disallowed CORS " + ", ".join(failures)
             return PlainTextResponse(
-                failure_text, status_code=400, headers=headers
+                failure_text, status_code=403, headers=headers
             )
 
-        return PlainTextResponse("OK", status_code=200, headers=headers)
+        return Response("", status_code=204, headers=headers)
 
     async def simple_response(
             self,
@@ -154,8 +162,7 @@ class CorsASGIApp:
         send = functools.partial(
             self.send, send=send, request_headers=request_headers
         )
-        handler = await self.app(scope, receive, send)
-        await handler(receive, send)
+        return await self.app(scope, receive, send)
 
     async def send(self, message, send, request_headers) -> None:
         if message["type"] != "http.response.start":
@@ -174,5 +181,6 @@ class CorsASGIApp:
         elif not self.allow_all_origins and \
                 self.is_allowed_origin(origin=origin):
             headers["Access-Control-Allow-Origin"] = origin
-            headers.add_vary_header("Origin")
+            if len(self.origins) > 1 or self.allow_origin_regex is not None:
+                headers.add_vary_header("Origin")
         await send(message)

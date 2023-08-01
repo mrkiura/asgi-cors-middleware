@@ -1,6 +1,6 @@
 [run]
 branch = True
-source = asgi_middleware
+source = asgi_cors_middleware
 
 [report]
 exclude_lines =
@@ -20,5 +20,6 @@ omit =
     setup.py
     */distutils/*
     tests/*
+    asgi_cors_middleware/__init__.py
 
 show_missing = True

@@ -23,5 +23,5 @@ setup(
     ],
     packages=["asgi_cors_middleware"],
     include_package_data=True,
-    install_requires=["starlette"]
+    install_requires=["starlette", "asgiref>=3.5.0"]
 )
